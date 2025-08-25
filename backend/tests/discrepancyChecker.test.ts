@@ -1,5 +1,6 @@
 import { DiscrepancyChecker, Drug, Discrepancy, ValidationResult } from '../src/services/discrepancyChecker';
 import { InvoiceItem } from '../src/services/fileParser';
+import { describe, it, expect, beforeEach } from '@jest/globals';
 
 describe('DiscrepancyChecker', () => {
   let discrepancyChecker: DiscrepancyChecker;

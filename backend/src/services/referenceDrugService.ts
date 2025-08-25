@@ -31,7 +31,7 @@ export class ReferenceDrugService {
         throw new Error(`Failed to fetch reference drugs: ${response.status} ${response.statusText}`);
       }
 
-      const data: ReferenceDrugResponse[] = await response.json();
+      const data = await response.json() as ReferenceDrugResponse[];
       
       // Transform and validate the data
       const drugs = this.transformReferenceData(data);
