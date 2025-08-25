@@ -1,0 +1,23 @@
+{
+  "name": "pharmacy-invoice-frontend",
+  "version": "1.0.0",
+  "description": "Frontend for Pharmacy Invoice Validation System",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "react": "^19.1.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.11",
+    "@types/react-dom": "^19.1.7"
+  }
+}

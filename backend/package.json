@@ -1,0 +1,27 @@
+{
+  "name": "pharmacy-invoice-backend",
+  "version": "1.0.0",
+  "description": "Backend API for Pharmacy Invoice Validation System",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "keywords": [
+    "pharmacy",
+    "invoice",
+    "validation",
+    "api"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
