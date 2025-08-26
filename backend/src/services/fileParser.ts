@@ -74,7 +74,7 @@ export class FileParser {
   private async parseExcel(fileBuffer: Buffer): Promise<ParsedInvoice> {
     try {
       const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(fileBuffer);
+      await workbook.xlsx.load(fileBuffer as any);
       const worksheet = workbook.getWorksheet(1);
       if (!worksheet) {
         throw new Error('No worksheet found in Excel file');
