@@ -1,77 +1,82 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { AlertTriangle, CheckCircle2, Clock, Download, Search, Eye, Trash2 } from 'lucide-react';
-import { ValidationResult } from './Dashboard';
+import { AlertTriangle, CheckCircle2, Clock, Search, Eye, Trash2, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { ValidationResult } from '../services/api';
+import { pharmacyDataAPI } from '../services/api';
 
 interface ValidationHistoryProps {
   onViewDetails: (validation: ValidationResult) => void;
   onDeleteRequest: (validationId: string) => void;
-  onExportRequest: (validationId: string) => void;
+  onRefresh?: (refreshFn: () => void) => void;
 }
 
-// Mock historical data - in a real app, this would come from your backend
-const mockHistoryData: ValidationResult[] = [
-  {
-    id: 'validation-1',
-    fileName: 'invoice_january_2024.xlsx',
-    uploadedAt: '2024-01-15T10:30:00Z',
-    totalItems: 125,
-    processingTime: 3.2,
-    status: 'success',
-    discrepancies: [
-      // Mock discrepancy data would go here
-    ]
-  },
-  {
-    id: 'validation-2',
-    fileName: 'pharmacy_billing_Q4.csv',
-    uploadedAt: '2024-01-10T14:22:00Z',
-    totalItems: 87,
-    processingTime: 2.1,
-    status: 'success',
-    discrepancies: [
-      // Mock discrepancy data would go here - 5 items for example
-      ...Array(5).fill(null)
-    ]
-  },
-  {
-    id: 'validation-3',
-    fileName: 'december_invoices.pdf',
-    uploadedAt: '2024-01-08T09:15:00Z',
-    totalItems: 156,
-    processingTime: 4.7,
-    status: 'partial',
-    discrepancies: [
-      // Mock discrepancy data would go here - 12 items for example
-      ...Array(12).fill(null)
-    ]
-  },
-  {
-    id: 'validation-4',
-    fileName: 'invalid_format.txt',
-    uploadedAt: '2024-01-05T16:45:00Z',
-    totalItems: 0,
-    processingTime: 0.5,
-    status: 'error',
-    discrepancies: []
-  }
-];
-
-export function ValidationHistory({ onViewDetails, onDeleteRequest, onExportRequest }: ValidationHistoryProps) {
+export function ValidationHistory({ onViewDetails, onDeleteRequest, onRefresh }: ValidationHistoryProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [historyData] = useState<ValidationResult[]>(mockHistoryData);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [historyData, setHistoryData] = useState<ValidationResult[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  const fetchValidationHistory = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const history = await pharmacyDataAPI.getValidationHistory();
+      setHistoryData(history);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch validation history';
+      setError(errorMessage);
+      console.error('Error fetching validation history:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Fetch validation history on component mount
+  useEffect(() => {
+    fetchValidationHistory();
+  }, [fetchValidationHistory]);
+
+  // Expose refresh function to parent component
+  useEffect(() => {
+    if (onRefresh) {
+      onRefresh(fetchValidationHistory);
+    }
+  }, [onRefresh, fetchValidationHistory]);
 
   const filteredHistory = historyData.filter(item => {
-    const matchesSearch = item.fileName.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
+    const matchesSearch = (item.fileName || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || (item.status || 'unknown') === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  // Pagination logic
+  const totalPages = Math.ceil(filteredHistory.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedHistory = filteredHistory.slice(startIndex, endIndex);
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage);
+    setCurrentPage(1); // Reset to first page when changing items per page
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -116,9 +121,11 @@ export function ValidationHistory({ onViewDetails, onDeleteRequest, onExportRequ
 
   // Calculate summary statistics
   const totalValidations = historyData.length;
-  const successfulValidations = historyData.filter(v => v.status === 'success').length;
-  const totalDiscrepancies = historyData.reduce((sum, v) => sum + v.discrepancies.length, 0);
-  const averageProcessingTime = historyData.reduce((sum, v) => sum + v.processingTime, 0) / historyData.length;
+  const successfulValidations = historyData.filter(v => (v.status || 'unknown') === 'success').length;
+  const totalDiscrepancies = historyData.reduce((sum, v) => sum + (v.discrepancies?.length || 0), 0);
+  const averageProcessingTime = totalValidations > 0
+    ? historyData.reduce((sum, v) => sum + (v.processingTime || 0), 0) / totalValidations
+    : 0;
 
   return (
     <div className="space-y-6">
@@ -184,10 +191,24 @@ export function ValidationHistory({ onViewDetails, onDeleteRequest, onExportRequ
       {/* History Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Validation History</CardTitle>
-          <CardDescription>
-            Review your previous invoice validations and their results
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Validation History</CardTitle>
+              <CardDescription>
+                Review your previous invoice validations and their results
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchValidationHistory}
+              disabled={isLoading}
+              className="flex items-center space-x-2"
+            >
+              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {/* Filters */}
@@ -220,49 +241,67 @@ export function ValidationHistory({ onViewDetails, onDeleteRequest, onExportRequ
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>File Name</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Items</TableHead>
-                  <TableHead>Issues</TableHead>
-                  <TableHead>Processing Time</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="text-center">File Name</TableHead>
+                  <TableHead className="text-center">Date</TableHead>
+                  <TableHead className="text-center">Status</TableHead>
+                  <TableHead className="text-center">Items</TableHead>
+                  <TableHead className="text-center">Issues</TableHead>
+                  <TableHead className="text-center">Processing Time</TableHead>
+                  <TableHead className="text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredHistory.length === 0 ? (
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                      <div className="flex items-center justify-center">
+                        <RefreshCw className="h-6 w-6 animate-spin text-blue-500 mr-2" />
+                        Loading validation history...
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : error ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-8 text-red-500">
+                      <div className="flex items-center justify-center">
+                        <AlertTriangle className="h-6 w-6 mr-2" />
+                        {error}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : filteredHistory.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                       No validation history matches your current filters
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredHistory.map((validation) => (
-                    <TableRow key={validation.id}>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          {getStatusIcon(validation.status)}
-                          <span className="font-medium">{validation.fileName}</span>
+                  paginatedHistory.map((validation) => (
+                    <TableRow key={validation.id || `unknown-${Math.random()}`}>
+                      <TableCell className="text-center">
+                        <div className="flex items-center space-x-2 text-center justify-center">
+                          {getStatusIcon(validation.status || 'unknown')}
+                          <span className="font-medium">{validation.fileName || 'Unknown File'}</span>
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-center">
                         <div className="text-sm">
-                          {new Date(validation.uploadedAt).toLocaleDateString()}
+                          {validation.uploadedAt ? new Date(validation.uploadedAt).toLocaleDateString() : 'Unknown Date'}
                           <div className="text-muted-foreground">
-                            {new Date(validation.uploadedAt).toLocaleTimeString()}
+                            {validation.uploadedAt ? new Date(validation.uploadedAt).toLocaleTimeString() : 'Unknown Time'}
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell>
-                        {getStatusBadge(validation.status)}
+                      <TableCell className="text-center">
+                        {getStatusBadge(validation.status || 'unknown')}
                       </TableCell>
-                      <TableCell>
-                        <span className="font-medium">{validation.totalItems}</span>
+                      <TableCell className="text-center">
+                        <span className="font-medium">{validation.totalItems || 0}</span>
                       </TableCell>
-                      <TableCell>
-                        {validation.discrepancies.length > 0 ? (
+                      <TableCell className="text-center">
+                        {(validation.discrepancies?.length || 0) > 0 ? (
                           <Badge variant="outline" className="text-orange-600">
-                            {validation.discrepancies.length} issues
+                            {validation.discrepancies?.length || 0} issues
                           </Badge>
                         ) : (
                           <Badge variant="outline" className="text-green-600">
@@ -270,27 +309,20 @@ export function ValidationHistory({ onViewDetails, onDeleteRequest, onExportRequ
                           </Badge>
                         )}
                       </TableCell>
-                      <TableCell>
-                        <span className="text-sm">{validation.processingTime}s</span>
+                      <TableCell className="text-center">
+                        <span className="text-sm">{validation.processingTime || 0}s</span>
                       </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end space-x-2">
+                      <TableCell className="text-center">
+                        <div className="flex items-center justify-center space-x-2">
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => onViewDetails(validation)}
-                            disabled={validation.status === 'error'}
+                            disabled={(validation.status || 'unknown') === 'error'}
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onExportRequest(validation.id)}
-                            disabled={validation.status === 'error'}
-                          >
-                            <Download className="h-4 w-4" />
-                          </Button>
+
                           <Button
                             variant="ghost"
                             size="sm"
@@ -306,6 +338,98 @@ export function ValidationHistory({ onViewDetails, onDeleteRequest, onExportRequ
               </TableBody>
             </Table>
           </div>
+
+          {/* Pagination Controls */}
+          {filteredHistory.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6">
+              {/* Items per page selector */}
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-muted-foreground">Show:</span>
+                <Select value={itemsPerPage.toString()} onValueChange={(value) => handleItemsPerPageChange(parseInt(value))}>
+                  <SelectTrigger className="w-20">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5">5</SelectItem>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="20">20</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-sm text-muted-foreground">per page</span>
+              </div>
+
+              {/* Page info */}
+              <div className="text-sm text-muted-foreground">
+                Showing {startIndex + 1} to {Math.min(endIndex, filteredHistory.length)} of {filteredHistory.length} results
+              </div>
+
+              {/* Pagination buttons */}
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(1)}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronsLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+
+                {/* Page numbers */}
+                <div className="flex items-center space-x-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => handlePageChange(pageNum)}
+                        className="w-8 h-8 p-0"
+                      >
+                        {pageNum}
+                      </Button>
+                    );
+                  })}
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handlePageChange(totalPages)}
+                  disabled={currentPage === totalPages}
+                >
+                  <ChevronsRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

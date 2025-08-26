@@ -1,5 +1,5 @@
 // API service for pharmacy data validation
-// This would be used to communicate with your Express.js backend
+// Connects to the Express.js backend
 
 export interface Drug {
   id: string;
@@ -11,24 +11,33 @@ export interface Drug {
 }
 
 export interface InvoiceItem {
-  id: string;
   drugName: string;
-  formulation: string;
+  patientName: string;
   strength: string;
-  unitPrice: number;
-  quantity: number;
+  formulation: string;
+  doseInstructions: string;
   payer: string;
-  totalAmount: number;
+  quantity: number;
+  unitPrice: number;
+  total: number;
 }
 
 export interface Discrepancy {
-  id: string;
-  invoiceItem: InvoiceItem;
-  referenceDrug: Drug | null;
+  id?: string; // Optional since backend doesn't provide this
   type: 'price_overcharge' | 'formulation_mismatch' | 'strength_mismatch' | 'payer_mismatch' | 'drug_not_found';
   severity: 'high' | 'medium' | 'low';
-  description: string;
+  description?: string; // Optional since backend provides 'message'
+  message?: string; // Backend provides this
+  // Backend provides these directly
+  drugName: string;
+  patientName?: string; // Patient name from the invoice
+  invoiceValue: string | number;
+  referenceValue: string | number;
+  // Optional fields that might be present in some cases
+  invoiceItem?: InvoiceItem;
+  referenceDrug?: Drug | null;
   overchargePercentage?: number;
+  overchargeAmount?: number;
   expectedValue?: string;
   actualValue?: string;
 }
@@ -43,12 +52,30 @@ export interface ValidationResult {
   status: 'success' | 'partial' | 'error';
 }
 
+export interface UploadResponse {
+  success: boolean;
+  message: string;
+  data?: ValidationResult;
+  error?: string;
+}
+
+export interface SupportedFormatsResponse {
+  formats: string[];
+  maxFileSize: number;
+}
+
+export interface ErrorResponse {
+  success: false;
+  message: string;
+  error?: string;
+}
+
 class PharmacyDataAPI {
   private baseURL: string;
 
   constructor() {
-    // Use a default API URL since process.env is not available in this environment
-    this.baseURL = 'http://localhost:3001/api';
+    // Use environment variable or default to localhost:5000
+    this.baseURL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5000/api';
   }
 
   /**
@@ -66,29 +93,126 @@ class PharmacyDataAPI {
   }
 
   /**
+   * Download a validation report as a Blob
+   */
+  async downloadReport(validationId: string, format: string): Promise<Blob> {
+    try {
+      const response = await fetch(
+        `${this.baseURL}/validation/${encodeURIComponent(validationId)}/report?format=${encodeURIComponent(format)}`,
+      );
+
+      if (response.ok) {
+        return await response.blob();
+      }
+
+      // Fallback: return error text as a blob so the UI can still proceed gracefully
+      const errText = await response.text().catch(() => 'Failed to download report');
+      return new Blob([errText], { type: 'text/plain' });
+    } catch (error) {
+      // Final fallback: return a plain text blob describing the failure
+      const message = error instanceof Error ? error.message : 'Failed to download report';
+      return new Blob([message], { type: 'text/plain' });
+    }
+  }
+
+  /**
    * Upload and validate an invoice file
    */
   async validateInvoice(file: File): Promise<ValidationResult> {
-    // For demo purposes, simulate the API call with mock data
     try {
-      // Simulate processing time
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Return mock validation result
-      const mockResult: ValidationResult = {
-        id: `validation-${Date.now()}`,
-        fileName: file.name,
-        uploadedAt: new Date().toISOString(),
-        totalItems: Math.floor(Math.random() * 100) + 20,
-        processingTime: Math.random() * 5 + 1,
-        status: 'success',
-        discrepancies: []
-      };
+      const formData = new FormData();
+      formData.append('invoice', file); // Changed from 'file' to 'invoice' to match backend
+      const start = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const response = await fetch(`${this.baseURL}/upload`, {
+        method: 'POST',
+        body: formData,
+      });
 
-      return mockResult;
+      if (!response.ok) {
+        const errorData: ErrorResponse = await response.json();
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const raw = await response.json();
+      const mapped = this.transformBackendUploadResponse(raw);
+      return mapped;
     } catch (error) {
       console.error('Error validating invoice:', error);
-      throw new Error('Failed to validate invoice. Please try again.');
+      throw new Error(error instanceof Error ? error.message : 'Failed to validate invoice. Please try again.');
+    }
+  }
+
+  /**
+   * Get supported file formats
+   */
+  async getSupportedFormats(): Promise<SupportedFormatsResponse> {
+    try {
+      const response = await fetch(`${this.baseURL}/upload/supported-formats`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      // Transform backend response to match our interface
+      if (result.success && result.supportedFormats) {
+        return {
+          formats: result.supportedFormats.map((format: any) => format.extension),
+          maxFileSize: parseInt(result.requirements.maxFileSize) * 1024 * 1024 // Convert MB to bytes
+        };
+      }
+      
+      throw new Error('Invalid response format from backend');
+    } catch (error) {
+      console.error('Error fetching supported formats:', error);
+      throw new Error('Failed to fetch supported formats');
+    }
+  }
+
+  /**
+   * Validate invoice data without file upload
+   */
+  async validateInvoiceData(invoiceItems: InvoiceItem[]): Promise<ValidationResult> {
+    try {
+      const start = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+      const response = await fetch(`${this.baseURL}/upload/validate-only`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ invoiceItems }),
+      });
+
+      if (!response.ok) {
+        const errorData: ErrorResponse = await response.json();
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const raw = await response.json();
+      const mapped = this.transformBackendUploadResponse(raw);
+      return mapped;
+    } catch (error) {
+      console.error('Error validating invoice data:', error);
+      throw new Error(error instanceof Error ? error.message : 'Failed to validate invoice data. Please try again.');
+    }
+  }
+
+  /**
+   * Health check for the backend
+   */
+  async healthCheck(): Promise<{ status: string; timestamp: string }> {
+    try {
+      const response = await fetch(`${this.baseURL}/health`);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Health check failed:', error);
+      throw new Error('Backend is not responding');
     }
   }
 
@@ -96,186 +220,38 @@ class PharmacyDataAPI {
    * Get validation history for the user
    */
   async getValidationHistory(): Promise<ValidationResult[]> {
-    // For demo purposes, return mock data
     try {
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const response = await fetch(`${this.baseURL}/validation/history`);
       
-      // Create mock discrepancy data
-      const createMockDiscrepancies = (count: number): Discrepancy[] => {
-        const discrepancies: Discrepancy[] = [];
-        const types = ['price_overcharge', 'formulation_mismatch', 'strength_mismatch', 'payer_mismatch', 'drug_not_found'];
-        const severities = ['high', 'medium', 'low'];
-        
-        for (let i = 0; i < count; i++) {
-          const type = types[Math.floor(Math.random() * types.length)];
-          const severity = severities[Math.floor(Math.random() * severities.length)];
-          
-          discrepancies.push({
-            id: `discrepancy-${i + 1}`,
-            invoiceItem: {
-              id: `item-${i + 1}`,
-              drugName: `Drug ${i + 1}`,
-              formulation: 'Tablet',
-              strength: '10mg',
-              unitPrice: 25.50 + Math.random() * 100,
-              quantity: Math.floor(Math.random() * 100) + 1,
-              payer: 'Insurance A',
-              totalAmount: 0
-            },
-            referenceDrug: {
-              id: `ref-${i + 1}`,
-              name: `Drug ${i + 1}`,
-              formulation: 'Tablet',
-              strength: '10mg',
-              unitPrice: 20.00 + Math.random() * 80,
-              payer: 'Insurance A'
-            },
-            type: type as any,
-            severity: severity as any,
-            description: `Mock ${type} discrepancy`,
-            overchargePercentage: type === 'price_overcharge' ? Math.random() * 20 + 5 : undefined,
-            expectedValue: type !== 'price_overcharge' ? 'Expected value' : undefined,
-            actualValue: type !== 'price_overcharge' ? 'Actual value' : undefined
-          });
-        }
-        
-        // Calculate total amounts
-        discrepancies.forEach(d => {
-          d.invoiceItem.totalAmount = d.invoiceItem.unitPrice * d.invoiceItem.quantity;
-        });
-        
-        return discrepancies;
-      };
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      const rawHistory = result.data || [];
       
-      // Return mock history data with proper discrepancies
-      const mockHistory: ValidationResult[] = [
-        {
-          id: 'validation-1',
-          fileName: 'invoice_january_2024.xlsx',
-          uploadedAt: '2024-01-15T10:30:00Z',
-          totalItems: 125,
-          processingTime: 3.2,
-          status: 'success',
-          discrepancies: []
-        },
-        {
-          id: 'validation-2',
-          fileName: 'pharmacy_billing_Q4.csv',
-          uploadedAt: '2024-01-10T14:22:00Z',
-          totalItems: 87,
-          processingTime: 2.1,
-          status: 'success',
-          discrepancies: createMockDiscrepancies(5)
-        },
-        {
-          id: 'validation-3',
-          fileName: 'december_invoices.pdf',
-          uploadedAt: '2024-01-08T09:15:00Z',
-          totalItems: 156,
-          processingTime: 4.7,
-          status: 'partial',
-          discrepancies: createMockDiscrepancies(12)
-        }
-      ];
-      
-      return mockHistory;
+      // Transform each history item to ensure proper frontend structure
+      return rawHistory.map((historyItem: any) => {
+        // Create a mock envelope structure to reuse the transformation logic
+        const mockEnvelope: BackendValidationResultEnvelope = {
+          success: true,
+          message: 'History item',
+          data: {
+            id: historyItem.id,
+            fileName: historyItem.fileName,
+            uploadedAt: historyItem.uploadedAt,
+            totalItems: historyItem.totalItems,
+            discrepancies: historyItem.discrepancies || [],
+            processingTime: historyItem.processingTime,
+            status: historyItem.status
+          }
+        };
+        
+        return this.transformBackendUploadResponse(mockEnvelope);
+      });
     } catch (error) {
       console.error('Error fetching validation history:', error);
-      throw new Error('Failed to fetch validation history.');
-    }
-  }
-
-  /**
-   * Get details for a specific validation
-   */
-  async getValidationDetails(validationId: string): Promise<ValidationResult> {
-    // For demo purposes, return mock data
-    try {
-      await new Promise(resolve => setTimeout(resolve, 300));
-      
-      // Create some mock discrepancies for demo
-      const createMockDiscrepancies = (count: number): Discrepancy[] => {
-        const discrepancies: Discrepancy[] = [];
-        const types = ['price_overcharge', 'formulation_mismatch', 'strength_mismatch', 'payer_mismatch', 'drug_not_found'];
-        const severities = ['high', 'medium', 'low'];
-        
-        for (let i = 0; i < count; i++) {
-          const type = types[Math.floor(Math.random() * types.length)];
-          const severity = severities[Math.floor(Math.random() * severities.length)];
-          
-          discrepancies.push({
-            id: `discrepancy-${i + 1}`,
-            invoiceItem: {
-              id: `item-${i + 1}`,
-              drugName: `Sample Drug ${i + 1}`,
-              formulation: 'Tablet',
-              strength: '10mg',
-              unitPrice: 25.50 + Math.random() * 100,
-              quantity: Math.floor(Math.random() * 100) + 1,
-              payer: 'Insurance A',
-              totalAmount: 0
-            },
-            referenceDrug: {
-              id: `ref-${i + 1}`,
-              name: `Sample Drug ${i + 1}`,
-              formulation: 'Tablet',
-              strength: '10mg',
-              unitPrice: 20.00 + Math.random() * 80,
-              payer: 'Insurance A'
-            },
-            type: type as any,
-            severity: severity as any,
-            description: `Sample ${type} discrepancy for demo`,
-            overchargePercentage: type === 'price_overcharge' ? Math.random() * 20 + 5 : undefined,
-            expectedValue: type !== 'price_overcharge' ? 'Expected value' : undefined,
-            actualValue: type !== 'price_overcharge' ? 'Actual value' : undefined
-          });
-        }
-        
-        // Calculate total amounts
-        discrepancies.forEach(d => {
-          d.invoiceItem.totalAmount = d.invoiceItem.unitPrice * d.invoiceItem.quantity;
-        });
-        
-        return discrepancies;
-      };
-      
-      const mockValidation: ValidationResult = {
-        id: validationId,
-        fileName: 'sample_invoice.xlsx',
-        uploadedAt: new Date().toISOString(),
-        totalItems: 50,
-        processingTime: 2.5,
-        status: 'success',
-        discrepancies: createMockDiscrepancies(8) // Create some discrepancies for demo
-      };
-      
-      return mockValidation;
-    } catch (error) {
-      console.error('Error fetching validation details:', error);
-      throw new Error('Failed to fetch validation details.');
-    }
-  }
-
-  /**
-   * Download validation report
-   */
-  async downloadReport(validationId: string, format: 'pdf' | 'excel' | 'csv' = 'pdf'): Promise<Blob> {
-    try {
-      // For demo purposes, create a mock blob
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      const mockContent = `Mock ${format.toUpperCase()} report for validation ${validationId}`;
-      const blob = new Blob([mockContent], { 
-        type: format === 'pdf' ? 'application/pdf' : 
-              format === 'excel' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 
-              'text/csv'
-      });
-      
-      return blob;
-    } catch (error) {
-      console.error('Error downloading report:', error);
-      throw new Error('Failed to download report.');
+      throw new Error('Failed to fetch validation history');
     }
   }
 
@@ -284,50 +260,68 @@ class PharmacyDataAPI {
    */
   async deleteValidation(validationId: string): Promise<void> {
     try {
-      // For demo purposes, simulate the deletion
-      await new Promise(resolve => setTimeout(resolve, 500));
-      console.log(`Mock deletion of validation ${validationId}`);
-    } catch (error) {
-      console.error('Error deleting validation:', error);
-      throw new Error('Failed to delete validation.');
-    }
-  }
-
-  /**
-   * Get reference drug data from the external API
-   */
-  async getReferenceDrugs(): Promise<Drug[]> {
-    try {
-      const response = await fetch('https://685daed17b57aebd2af6da54.mockapi.io/api/v1/drugs');
+      const response = await fetch(`${this.baseURL}/validation/history/${validationId}`, {
+        method: 'DELETE',
+      });
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const drugs = await response.json();
-      return drugs;
+      // Success - no need to return anything
     } catch (error) {
-      console.error('Error fetching reference drugs:', error);
-      throw new Error('Failed to fetch reference drug data.');
+      console.error('Error deleting validation:', error);
+      throw new Error(error instanceof Error ? error.message : 'Failed to delete validation');
     }
   }
 
-  /**
-   * Health check for the API
-   */
-  async healthCheck(): Promise<{ status: string; timestamp: string }> {
-    try {
-      // For demo purposes, simulate a successful health check
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      return {
-        status: 'healthy',
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      console.error('Error checking API health:', error);
-      throw new Error('Failed to connect to API.');
+  // Map backend envelope to frontend ValidationResult
+  private transformBackendUploadResponse(raw: BackendValidationResultEnvelope): ValidationResult {
+    if (!raw || !raw.success || !raw.data) {
+      throw new Error((raw as any)?.message || 'Invalid backend response');
     }
+
+    const mappedDiscrepancies: Discrepancy[] = (raw.data.discrepancies || []).map((d) => ({
+      id: mkId('disc'),
+      type: mapType(d.type, d.message),
+      severity: mapSeverity(d.severity),
+      description: d.message,
+      message: d.message,
+      drugName: d.drugName,
+      patientName: d.patientName, // Add patientName to the mapped discrepancy
+      invoiceValue: d.invoiceValue,
+      referenceValue: d.referenceValue,
+      expectedValue: String(d.referenceValue ?? ''),
+      actualValue: String(d.invoiceValue ?? ''),
+      overchargePercentage: typeof d.percentageDifference === 'number' ? Math.min(d.percentageDifference * 100, 1000) : undefined,
+      overchargeAmount: typeof d.overchargeAmount === 'number' ? d.overchargeAmount : undefined,
+      invoiceItem: {
+        id: mkId('item'),
+        drugName: d.drugName,
+        formulation: '', // Backend doesn't provide this in discrepancy
+        strength: '',    // Backend doesn't provide this in discrepancy
+        unitPrice: 0,   // Backend doesn't provide this in discrepancy
+        quantity: 1,    // Backend doesn't provide this in discrepancy
+        payer: '',      // Backend doesn't provide this in discrepancy
+        total: 0,       // Backend doesn't provide this in discrepancy
+        patientName: '', // Backend doesn't provide this in discrepancy
+        doseInstructions: '' // Backend doesn't provide this in discrepancy
+      }
+    }));
+
+    const backendTime = typeof raw.data.processingTime === 'number' ? raw.data.processingTime : 0;
+    const processingTime = backendTime && backendTime > 0 ? backendTime : 0;
+
+    return {
+      id: raw.data.id,
+      fileName: raw.data.fileName,
+      uploadedAt: raw.data.uploadedAt,
+      totalItems: raw.data.totalItems,
+      discrepancies: mappedDiscrepancies,
+      processingTime,
+      status: raw.data.status,
+    };
   }
 }
 
@@ -386,3 +380,64 @@ export const fileUtils = {
     return '.' + filename.split('.').pop()?.toLowerCase() || '';
   }
 };
+
+// Internal helpers to transform backend → frontend models
+interface BackendDiscrepancy {
+  type: 'unit_price' | 'formulation' | 'strength' | 'payer';
+  drugName: string;
+  invoiceValue: string | number;
+  referenceValue: string | number;
+  message: string;
+  severity: 'warning' | 'error' | 'critical';
+  percentageDifference?: number;
+  overchargeAmount?: number;
+  patientName?: string; // Add patientName to the backend discrepancy
+}
+
+interface BackendValidationResultEnvelope {
+  success: boolean;
+  message: string;
+  data?: {
+    id: string;
+    fileName: string;
+    uploadedAt: string;
+    totalItems: number;
+    discrepancies: BackendDiscrepancy[];
+    processingTime?: number;
+    status: 'success' | 'partial' | 'error';
+  };
+  validation?: {
+    summary?: {
+      totalDiscrepancies: number;
+      totalOvercharge?: number;
+    }
+  };
+}
+
+function mapSeverity(s: BackendDiscrepancy['severity']): Discrepancy['severity'] {
+  switch (s) {
+    case 'critical': return 'high';
+    case 'error': return 'medium';
+    case 'warning':
+    default: return 'low';
+  }
+}
+
+function mapType(t: BackendDiscrepancy['type'], msg: string): Discrepancy['type'] {
+  if (msg?.toLowerCase().includes('not found in reference')) {
+    return 'drug_not_found';
+  }
+  switch (t) {
+    case 'unit_price': return 'price_overcharge';
+    case 'formulation': return 'formulation_mismatch';
+    case 'strength': return 'strength_mismatch';
+    case 'payer': return 'payer_mismatch';
+    default: return t as any;
+  }
+}
+
+function mkId(prefix = 'disc'): string {
+  return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+// (helper functions used by the class defined above)

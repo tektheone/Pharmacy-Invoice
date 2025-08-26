@@ -5,22 +5,24 @@ import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { AlertTriangle, AlertCircle, Info, Search, Filter, ArrowUpDown } from 'lucide-react';
-import { Discrepancy } from './Dashboard';
+import { AlertTriangle, AlertCircle, Info, Search, Filter, ArrowUpDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react';
+import type { Discrepancy } from '../services/api';
 
 interface DiscrepancyTableProps {
   discrepancies: Discrepancy[];
 }
 
-type SortField = 'drugName' | 'type' | 'severity' | 'overchargePercentage';
+type SortField = 'drugName' | 'type' | 'severity' | 'overchargePercentage' | 'patientName' | 'details';
 type SortDirection = 'asc' | 'desc';
 
 export function DiscrepancyTable({ discrepancies }: DiscrepancyTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [severityFilter, setSeverityFilter] = useState<string>('all');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
-  const [sortField, setSortField] = useState<SortField>('severity');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [severityFilter, setSeverityFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [sortField, setSortField] = useState('severity');
+  const [sortDirection, setSortDirection] = useState('desc');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const getSeverityIcon = (severity: string) => {
     switch (severity) {
@@ -70,44 +72,35 @@ export function DiscrepancyTable({ discrepancies }: DiscrepancyTableProps) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
       setSortField(field);
-      setSortDirection('desc');
+      setSortDirection('asc');
     }
   };
 
-  const filteredAndSortedDiscrepancies = useMemo(() => {
-    let filtered = discrepancies.filter(discrepancy => {
-      // Filter out null discrepancies
-      if (!discrepancy || !discrepancy.invoiceItem) {
-        return false;
-      }
-
-      const matchesSearch = discrepancy.invoiceItem.drugName
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase());
-
-      const matchesSeverity = severityFilter === 'all' || discrepancy.severity === severityFilter;
-      const matchesType = typeFilter === 'all' || discrepancy.type === typeFilter;
-
-      return matchesSearch && matchesSeverity && matchesType;
-    });
-
-    // Sort the filtered results
-    filtered.sort((a, b) => {
-      let aValue: any, bValue: any;
+  const sortedDiscrepancies = useMemo(() => {
+    return [...discrepancies].sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
 
       switch (sortField) {
         case 'drugName':
-          aValue = a.invoiceItem.drugName;
-          bValue = b.invoiceItem.drugName;
+          aValue = a.drugName.toLowerCase();
+          bValue = b.drugName.toLowerCase();
+          break;
+        case 'patientName':
+          aValue = (a.patientName || '').toLowerCase();
+          bValue = (b.patientName || '').toLowerCase();
+          break;
+        case 'details':
+          aValue = `${a.actualValue} ${a.expectedValue}`.toLowerCase();
+          bValue = `${b.actualValue} ${b.expectedValue}`.toLowerCase();
           break;
         case 'type':
-          aValue = a.type;
-          bValue = b.type;
+          aValue = a.type.toLowerCase();
+          bValue = b.type.toLowerCase();
           break;
         case 'severity':
-          const severityOrder = { high: 3, medium: 2, low: 1 };
-          aValue = severityOrder[a.severity as keyof typeof severityOrder];
-          bValue = severityOrder[b.severity as keyof typeof severityOrder];
+          aValue = a.severity.toLowerCase();
+          bValue = b.severity.toLowerCase();
           break;
         case 'overchargePercentage':
           aValue = a.overchargePercentage || 0;
@@ -117,13 +110,51 @@ export function DiscrepancyTable({ discrepancies }: DiscrepancyTableProps) {
           return 0;
       }
 
-      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
-      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
+      if (sortDirection === 'asc') {
+        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+      } else {
+        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+      }
+    });
+  }, [discrepancies, sortField, sortDirection]);
+
+  const filteredAndSortedDiscrepancies = useMemo(() => {
+    let filtered = sortedDiscrepancies.filter(discrepancy => {
+      // Filter out null discrepancies
+      if (!discrepancy) {
+        return false;
+      }
+
+      // Backend provides drugName directly in the discrepancy
+      const drugName = discrepancy.drugName || '';
+      const matchesSearch = drugName.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesSeverity = severityFilter === 'all' || discrepancy.severity === severityFilter;
+      const matchesType = typeFilter === 'all' || discrepancy.type === typeFilter;
+
+      return matchesSearch && matchesSeverity && matchesType;
     });
 
-    return filtered;
-  }, [discrepancies, searchTerm, severityFilter, typeFilter, sortField, sortDirection]);
+    // Pagination logic
+    const totalPages = Math.ceil(filtered.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return filtered.slice(startIndex, endIndex);
+  }, [sortedDiscrepancies, searchTerm, severityFilter, typeFilter, currentPage, itemsPerPage]);
+
+  // Reset to first page when filters change
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, severityFilter, typeFilter]);
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage);
+    setCurrentPage(1); // Reset to first page when changing items per page
+  };
 
   const uniqueTypes = Array.from(new Set(discrepancies.filter(d => d !== null).map(d => d.type)));
 
@@ -170,7 +201,7 @@ export function DiscrepancyTable({ discrepancies }: DiscrepancyTableProps) {
 
       {/* Results Summary */}
       <div className="text-sm text-muted-foreground">
-        Showing {filteredAndSortedDiscrepancies.length} of {discrepancies.filter(d => d !== null).length} discrepancies
+        Showing {currentPage * itemsPerPage - itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredAndSortedDiscrepancies.length)} of {filteredAndSortedDiscrepancies.length} discrepancies
       </div>
 
       {/* Table */}
@@ -178,17 +209,42 @@ export function DiscrepancyTable({ discrepancies }: DiscrepancyTableProps) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>
-                <Button
-                  variant="ghost"
-                  onClick={() => handleSort('drugName')}
-                  className="h-auto p-0 font-medium"
-                >
-                  Drug Name
-                  <ArrowUpDown className="ml-2 h-4 w-4" />
-                </Button>
+              <TableHead className="w-[200px]">
+                <div className="flex items-center space-x-1">
+                  <span>Drug Name</span>
+                  <button onClick={() => handleSort('drugName')}>
+                    {sortField === 'drugName' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronsUpDown className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
               </TableHead>
-              <TableHead>Details</TableHead>
+              <TableHead className="w-[150px]">
+                <div className="flex items-center space-x-1">
+                  <span>Patient Name</span>
+                  <button onClick={() => handleSort('patientName')}>
+                    {sortField === 'patientName' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronsUpDown className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </TableHead>
+              <TableHead className="w-[200px]">
+                <div className="flex items-center space-x-1">
+                  <span>Details</span>
+                  <button onClick={() => handleSort('details')}>
+                    {sortField === 'details' ? (
+                      sortDirection === 'asc' ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronsUpDown className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </TableHead>
               <TableHead>
                 <Button
                   variant="ghost"
@@ -221,21 +277,20 @@ export function DiscrepancyTable({ discrepancies }: DiscrepancyTableProps) {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredAndSortedDiscrepancies.map((discrepancy) => (
-                <TableRow key={discrepancy.id}>
-                  <TableCell>
-                    <div>
-                      <div className="font-medium">{discrepancy.invoiceItem.drugName}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {discrepancy.invoiceItem.formulation} {discrepancy.invoiceItem.strength}
-                      </div>
-                    </div>
+              filteredAndSortedDiscrepancies.map((discrepancy, index) => (
+                <TableRow key={index}>
+                  <TableCell className="font-medium">{discrepancy.drugName}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {discrepancy.patientName || 'N/A'}
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm space-y-1">
-                      <div>Price: ${discrepancy.invoiceItem.unitPrice.toFixed(2)}</div>
-                      <div>Qty: {discrepancy.invoiceItem.quantity}</div>
-                      <div>Payer: {discrepancy.invoiceItem.payer}</div>
+                    <div className="space-y-1">
+                      <div className="text-sm">
+                        <span className="font-medium">Invoice:</span> {discrepancy.actualValue}
+                      </div>
+                      <div className="text-sm">
+                        <span className="font-medium">Reference:</span> {discrepancy.expectedValue}
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>
@@ -253,7 +308,7 @@ export function DiscrepancyTable({ discrepancies }: DiscrepancyTableProps) {
                   </TableCell>
                   <TableCell>
                     <div className="text-sm">
-                      <div>{discrepancy.description}</div>
+                      <div>{discrepancy.message || discrepancy.description}</div>
                       {discrepancy.expectedValue && discrepancy.actualValue && (
                         <div className="text-muted-foreground mt-1">
                           Expected: {discrepancy.expectedValue} → Actual: {discrepancy.actualValue}
@@ -265,12 +320,16 @@ export function DiscrepancyTable({ discrepancies }: DiscrepancyTableProps) {
                     {discrepancy.type === 'price_overcharge' && discrepancy.overchargePercentage && (
                       <div className="text-sm">
                         <div className="font-medium text-destructive">
-                          +{discrepancy.overchargePercentage}%
+                          {discrepancy.overchargePercentage >= 1000 ? '1000%+' : `+${discrepancy.overchargePercentage.toFixed(1)}%`}
                         </div>
                         <div className="text-muted-foreground">
-                          ${(discrepancy.invoiceItem.unitPrice * discrepancy.invoiceItem.quantity *
-                            (discrepancy.overchargePercentage / 100)).toFixed(2)} excess
+                          ${discrepancy.overchargeAmount?.toFixed(2) || '0.00'} excess
                         </div>
+                        {discrepancy.overchargePercentage >= 1000 && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Extreme overcharge
+                          </div>
+                        )}
                       </div>
                     )}
                   </TableCell>
@@ -280,6 +339,98 @@ export function DiscrepancyTable({ discrepancies }: DiscrepancyTableProps) {
           </TableBody>
         </Table>
       </div>
+
+      {/* Pagination Controls */}
+      {filteredAndSortedDiscrepancies.length > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6">
+          {/* Items per page selector */}
+          <div className="flex items-center space-x-2">
+            <span className="text-sm text-muted-foreground">Show:</span>
+            <Select value={itemsPerPage.toString()} onValueChange={(value) => handleItemsPerPageChange(parseInt(value))}>
+              <SelectTrigger className="w-20">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="5">5</SelectItem>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="20">20</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-sm text-muted-foreground">per page</span>
+          </div>
+
+          {/* Page info */}
+          <div className="text-sm text-muted-foreground">
+            Page {currentPage} of {Math.ceil(filteredAndSortedDiscrepancies.length / itemsPerPage)}
+          </div>
+
+          {/* Pagination buttons */}
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(1)}
+              disabled={currentPage === 1}
+            >
+              <ChevronsLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+
+            {/* Page numbers */}
+            <div className="flex items-center space-x-1">
+              {Array.from({ length: Math.min(5, Math.ceil(filteredAndSortedDiscrepancies.length / itemsPerPage)) }, (_, i) => {
+                let pageNum;
+                if (Math.ceil(filteredAndSortedDiscrepancies.length / itemsPerPage) <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= Math.ceil(filteredAndSortedDiscrepancies.length / itemsPerPage) - 2) {
+                  pageNum = Math.ceil(filteredAndSortedDiscrepancies.length / itemsPerPage) - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
+
+                return (
+                  <Button
+                    key={pageNum}
+                    variant={currentPage === pageNum ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handlePageChange(pageNum)}
+                    className="w-8 h-8 p-0"
+                  >
+                    {pageNum}
+                  </Button>
+                );
+              })}
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === Math.ceil(filteredAndSortedDiscrepancies.length / itemsPerPage)}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(Math.ceil(filteredAndSortedDiscrepancies.length / itemsPerPage))}
+              disabled={currentPage === Math.ceil(filteredAndSortedDiscrepancies.length / itemsPerPage)}
+            >
+              <ChevronsRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

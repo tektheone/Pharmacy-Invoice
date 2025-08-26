@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
 import { CheckCircle2, AlertTriangle, AlertCircle, Clock, FileText, DollarSign } from 'lucide-react';
-import { ValidationResult } from './Dashboard';
+import type { ValidationResult } from '../services/api';
 
 interface ValidationSummaryProps {
   result: ValidationResult;
@@ -18,13 +18,18 @@ export function ValidationSummary({ result }: ValidationSummaryProps) {
 
   const overchargeDiscrepancies = discrepancies.filter(d => d.type === 'price_overcharge');
   const totalOvercharge = overchargeDiscrepancies.reduce((sum, d) => {
-    if (d.overchargePercentage) {
-      return sum + (d.invoiceItem.unitPrice * d.invoiceItem.quantity * (d.overchargePercentage / 100));
+    if (typeof d.overchargeAmount === 'number') {
+      return sum + d.overchargeAmount;
+    }
+    if (typeof d.overchargePercentage === 'number') {
+      return sum + ((d.invoiceItem?.unitPrice || 0) * (d.invoiceItem?.quantity || 0) * (d.overchargePercentage / 100));
     }
     return sum;
   }, 0);
 
-  const successRate = ((totalItems - discrepancies.length) / totalItems) * 100;
+  // Calculate success rate based on items with no discrepancies
+  const itemsWithDiscrepancies = new Set(discrepancies.map(d => d.drugName)).size;
+  const successRate = totalItems > 0 ? ((totalItems - itemsWithDiscrepancies) / totalItems) * 100 : 100;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -84,7 +89,9 @@ export function ValidationSummary({ result }: ValidationSummaryProps) {
               <p className="text-muted-foreground">Processing Time</p>
               <p className="font-medium flex items-center">
                 <Clock className="h-4 w-4 mr-1" />
-                {processingTime}s
+                {processingTime >= 1
+                  ? `${processingTime.toFixed(2)}s`
+                  : `${(processingTime * 1000).toFixed(0)} ms`}
               </p>
             </div>
             <div>
@@ -112,9 +119,9 @@ export function ValidationSummary({ result }: ValidationSummaryProps) {
               </div>
             </div>
             <div className="mt-4">
-              <Progress value={(discrepancies.length / totalItems) * 100} className="h-2" />
+              <Progress value={(itemsWithDiscrepancies / totalItems) * 100} className="h-2" />
               <p className="text-xs text-muted-foreground mt-1">
-                {((discrepancies.length / totalItems) * 100).toFixed(1)}% of items
+                {((itemsWithDiscrepancies / totalItems) * 100).toFixed(1)}% of items
               </p>
             </div>
           </CardContent>
@@ -197,7 +204,8 @@ export function ValidationSummary({ result }: ValidationSummaryProps) {
                 return acc;
               }, {} as Record<string, number>)
             ).map(([type, count]) => {
-              const percentage = (count / discrepancies.length) * 100;
+              const numericCount = Number(count) || 0;
+              const percentage = (numericCount / discrepancies.length) * 100;
               const getTypeLabel = (type: string) => {
                 switch (type) {
                   case 'price_overcharge': return 'Price Overcharge';
@@ -214,7 +222,7 @@ export function ValidationSummary({ result }: ValidationSummaryProps) {
                   <div className="flex items-center space-x-2">
                     <Badge variant="outline">{getTypeLabel(type)}</Badge>
                     <span className="text-sm text-muted-foreground">
-                      {count} issue{count !== 1 ? 's' : ''}
+                      {numericCount} issue{numericCount !== 1 ? 's' : ''}
                     </span>
                   </div>
                   <div className="flex items-center space-x-2">

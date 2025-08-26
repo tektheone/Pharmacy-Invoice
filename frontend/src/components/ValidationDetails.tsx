@@ -8,8 +8,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { DiscrepancyTable } from './DiscrepancyTable';
 import {
   ArrowLeft,
-  Download,
-  Share,
   FileText,
   Clock,
   AlertTriangle,
@@ -20,7 +18,7 @@ import {
   Eye,
   Calendar
 } from 'lucide-react';
-import { ValidationResult, Discrepancy } from './Dashboard';
+import type { ValidationResult } from '../services/api';
 
 interface ValidationDetailsProps {
   validation: ValidationResult;
@@ -43,12 +41,18 @@ export function ValidationDetails({ validation, onBack }: ValidationDetailsProps
   const highSeverityCount = discrepancies.filter(d => d && d.severity === 'high').length;
   const mediumSeverityCount = discrepancies.filter(d => d && d.severity === 'medium').length;
   const lowSeverityCount = discrepancies.filter(d => d && d.severity === 'low').length;
-  const successRate = ((totalItems - discrepancies.filter(d => d !== null).length) / totalItems) * 100;
+  // Calculate success rate based on items with no discrepancies
+  const itemsWithDiscrepancies = new Set(discrepancies.filter(d => d !== null).map(d => d.drugName)).size;
+  const successRate = totalItems > 0 ? ((totalItems - itemsWithDiscrepancies) / totalItems) * 100 : 100;
 
   const overchargeDiscrepancies = discrepancies.filter(d => d && d.type === 'price_overcharge');
   const totalOvercharge = overchargeDiscrepancies.reduce((sum, d) => {
+    if (d && d.overchargeAmount) {
+      return sum + d.overchargeAmount;
+    }
     if (d && d.overchargePercentage) {
-      return sum + (d.invoiceItem.unitPrice * d.invoiceItem.quantity * (d.overchargePercentage / 100));
+      // Fallback calculation if overchargeAmount is not available
+      return sum + (d.overchargePercentage / 100);
     }
     return sum;
   }, 0);
@@ -79,7 +83,12 @@ export function ValidationDetails({ validation, onBack }: ValidationDetailsProps
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
+    if (!dateString) return 'Unknown Date';
+    try {
+      return new Date(dateString).toLocaleString();
+    } catch (error) {
+      return 'Invalid Date';
+    }
   };
 
   const getTypeLabel = (type: string) => {
@@ -106,16 +115,7 @@ export function ValidationDetails({ validation, onBack }: ValidationDetailsProps
             <p className="text-muted-foreground">{fileName}</p>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
-          <Button variant="outline" size="sm">
-            <Share className="h-4 w-4 mr-2" />
-            Share
-          </Button>
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
-            Export
-          </Button>
-        </div>
+
       </div>
 
       {/* Status Banner */}
@@ -369,7 +369,7 @@ export function ValidationDetails({ validation, onBack }: ValidationDetailsProps
                     <div className="flex justify-between">
                       <span>Affected Amount</span>
                       <span className="font-medium">
-                        ${overchargeDiscrepancies.reduce((sum, d) => sum + d.invoiceItem.totalAmount, 0).toFixed(2)}
+                        ${overchargeDiscrepancies.reduce((sum, d) => sum + (d.invoiceItem?.totalAmount || 0), 0).toFixed(2)}
                       </span>
                     </div>
                   </div>

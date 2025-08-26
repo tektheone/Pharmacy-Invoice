@@ -12,6 +12,7 @@ export interface Drug {
 export interface Discrepancy {
   type: 'unit_price' | 'formulation' | 'strength' | 'payer';
   drugName: string;
+  patientName?: string; // Add patient name from the invoice item
   invoiceValue: string | number;
   referenceValue: string | number;
   message: string;
@@ -57,6 +58,7 @@ export class DiscrepancyChecker {
         discrepancies.push({
           type: 'formulation',
           drugName: item.drugName,
+          patientName: item.patientName, // Include patient name
           invoiceValue: item.formulation,
           referenceValue: 'Not found in reference',
           message: `Drug "${item.drugName}" not found in reference database`,
@@ -130,12 +132,19 @@ export class DiscrepancyChecker {
     if (percentageDifference > this.PRICE_THRESHOLD) {
       const overchargeAmount = invoicePrice - referencePrice;
       
+      // Cap percentage at 1000% for display purposes, but keep actual for calculations
+      const displayPercentage = Math.min(percentageDifference * 100, 1000);
+      const message = displayPercentage >= 1000 
+        ? `1000%+ overcharge (${overchargeAmount.toFixed(2)} excess)`
+        : `${displayPercentage.toFixed(1)}% overcharge`;
+      
       return {
         type: 'unit_price',
         drugName: invoiceItem.drugName,
+        patientName: invoiceItem.patientName, // Include patient name
         invoiceValue: invoicePrice,
         referenceValue: referencePrice,
-        message: `${(percentageDifference * 100).toFixed(1)}% overcharge`,
+        message: message,
         severity: 'error',
         percentageDifference: percentageDifference,
         overchargeAmount: overchargeAmount
@@ -159,6 +168,7 @@ export class DiscrepancyChecker {
     return {
       type: 'formulation',
       drugName: invoiceItem.drugName,
+      patientName: invoiceItem.patientName, // Include patient name
       invoiceValue: invoiceItem.formulation,
       referenceValue: referenceDrug.formulation,
       message: `Formulation mismatch: "${invoiceItem.formulation}" vs "${referenceDrug.formulation}"`,
@@ -180,6 +190,7 @@ export class DiscrepancyChecker {
     return {
       type: 'strength',
       drugName: invoiceItem.drugName,
+      patientName: invoiceItem.patientName, // Include patient name
       invoiceValue: invoiceItem.strength,
       referenceValue: referenceDrug.strength,
       message: `Strength mismatch: "${invoiceItem.strength}" vs "${referenceDrug.strength}" - Safety concern`,
@@ -201,6 +212,7 @@ export class DiscrepancyChecker {
     return {
       type: 'payer',
       drugName: invoiceItem.drugName,
+      patientName: invoiceItem.patientName, // Include patient name
       invoiceValue: invoiceItem.payer,
       referenceValue: referenceDrug.payer,
       message: `Payer mismatch: "${invoiceItem.payer}" vs "${referenceDrug.payer}" - Claims review needed`,

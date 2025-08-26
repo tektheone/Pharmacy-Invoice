@@ -20,12 +20,14 @@ interface DeleteConfirmationDialogProps {
   open: boolean;
   validationId: string | null;
   onOpenChange: (open: boolean) => void;
+  onDeleteSuccess?: () => void;
 }
 
 export function DeleteConfirmationDialog({
   open,
   validationId,
-  onOpenChange
+  onOpenChange,
+  onDeleteSuccess
 }: DeleteConfirmationDialogProps) {
   const [confirmText, setConfirmText] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
@@ -43,7 +45,10 @@ export function DeleteConfirmationDialog({
       await pharmacyDataAPI.deleteValidation(validationId);
       onOpenChange(false);
       setConfirmText('');
-      // In a real app, you would refresh the validation history here
+      // Call the success callback to refresh the validation history
+      if (onDeleteSuccess) {
+        onDeleteSuccess();
+      }
     } catch (err) {
       setError('Failed to delete validation. Please try again.');
     } finally {

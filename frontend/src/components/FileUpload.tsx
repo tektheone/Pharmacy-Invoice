@@ -1,4 +1,4 @@
-import React, { useState, useRef, DragEvent, ChangeEvent } from 'react';
+import React, { useState, useRef } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -7,35 +7,33 @@ import { Upload, File, X, AlertCircle } from 'lucide-react';
 import { cn } from './ui/utils';
 
 interface FileUploadProps {
-  onFileUpload: (file: File) => void;
+  onFileUpload: (file: File) => Promise<void>;
   disabled?: boolean;
+  supportedFormats?: string[];
+  maxFileSize?: number;
 }
 
-const ACCEPTED_FILE_TYPES = [
-  '.xlsx',
-  '.xls',
-  '.csv',
-  '.pdf'
-];
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-
-export function FileUpload({ onFileUpload, disabled = false }: FileUploadProps) {
+export function FileUpload({
+  onFileUpload,
+  disabled = false,
+  supportedFormats = ['.xlsx', '.xls', '.csv', '.pdf'],
+  maxFileSize = 10 * 1024 * 1024 // 10MB default
+}: FileUploadProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const validateFile = (file: File): string | null => {
     // Check file size
-    if (file.size > MAX_FILE_SIZE) {
-      return 'File size must be less than 10MB';
+    if (file.size > maxFileSize) {
+      return `File size must be less than ${(maxFileSize / (1024 * 1024)).toFixed(0)}MB`;
     }
 
     // Check file type
     const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
-    if (!ACCEPTED_FILE_TYPES.includes(fileExtension)) {
-      return 'Please upload a valid file type (.xlsx, .xls, .csv, .pdf)';
+    if (!supportedFormats.includes(fileExtension)) {
+      return `Please upload a valid file type (${supportedFormats.join(', ')})`;
     }
 
     return null;
@@ -53,7 +51,7 @@ export function FileUpload({ onFileUpload, disabled = false }: FileUploadProps) 
     setSelectedFile(file);
   };
 
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragOver = (e: any) => {
     e.preventDefault();
     e.stopPropagation();
     if (!disabled) {
@@ -61,13 +59,13 @@ export function FileUpload({ onFileUpload, disabled = false }: FileUploadProps) 
     }
   };
 
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragLeave = (e: any) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
   };
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+  const handleDrop = (e: any) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
@@ -80,7 +78,7 @@ export function FileUpload({ onFileUpload, disabled = false }: FileUploadProps) 
     }
   };
 
-  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = (e: any) => {
     const files = e.target.files;
     if (files && files.length > 0) {
       handleFileSelection(files[0]);
@@ -127,7 +125,7 @@ export function FileUpload({ onFileUpload, disabled = false }: FileUploadProps) 
         <Input
           ref={fileInputRef}
           type="file"
-          accept={ACCEPTED_FILE_TYPES.join(',')}
+          accept={supportedFormats.join(',')}
           onChange={handleFileInputChange}
           className="hidden"
           disabled={disabled}

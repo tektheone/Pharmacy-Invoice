@@ -4,6 +4,7 @@ import { FileParser } from '../services/fileParser';
 import { DiscrepancyChecker } from '../services/discrepancyChecker';
 import { ReferenceDrugService } from '../services/referenceDrugService';
 import { ValidationError, FileProcessingError, ReferenceAPIError } from '../middleware/errorHandler';
+import { ValidationHistoryService } from '../services/validationHistoryService';
 
 const router = Router();
 
@@ -11,6 +12,7 @@ const router = Router();
 const fileParser = new FileParser();
 const discrepancyChecker = new DiscrepancyChecker();
 const referenceDrugService = new ReferenceDrugService();
+const validationHistoryService = ValidationHistoryService.getInstance();
 
 // Multer configuration for file uploads
 const storage = multer.memoryStorage();
@@ -21,7 +23,20 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilt
                         'text/csv', // .csv
                         'application/pdf']; // .pdf
   
+  // Check mimetype first
   if (allowedTypes.includes(file.mimetype)) {
+    cb(null, true);
+    return;
+  }
+  
+  // Fallback: check file extension if mimetype is not reliable
+  const fileName = file.originalname.toLowerCase();
+  const hasValidExtension = fileName.endsWith('.xlsx') || 
+                           fileName.endsWith('.xls') || 
+                           fileName.endsWith('.csv') || 
+                           fileName.endsWith('.pdf');
+  
+  if (hasValidExtension) {
     cb(null, true);
   } else {
     cb(new ValidationError(`File type ${file.mimetype} not supported. Allowed types: .xlsx, .xls, .csv, .pdf`));
@@ -43,6 +58,7 @@ const upload = multer({
  */
 router.post('/', upload.single('invoice'), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const startHr = process.hrtime.bigint();
     // Validate file upload
     if (!req.file) {
       throw new ValidationError('No file uploaded. Please provide an invoice file.');
@@ -55,9 +71,15 @@ router.post('/', upload.single('invoice'), async (req: Request, res: Response, n
     // Parse the uploaded file
     let parsedInvoice;
     try {
+      console.log('Starting file parsing...');
+      console.log('File buffer length:', buffer.length);
+      console.log('File buffer preview:', buffer.toString('utf8').substring(0, 200));
+      
       parsedInvoice = await fileParser.parseFile(buffer, originalname);
       console.log(`File parsed successfully: ${parsedInvoice.itemCount} items found`);
+      console.log('Parsed invoice:', JSON.stringify(parsedInvoice, null, 2));
     } catch (error) {
+      console.error('File parsing error:', error);
       throw new FileProcessingError(`Failed to parse file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
@@ -81,9 +103,23 @@ router.post('/', upload.single('invoice'), async (req: Request, res: Response, n
     const validationResult = discrepancyChecker.validateInvoice(parsedInvoice.items);
 
     // Prepare response
+    const status: 'success' | 'partial' | 'error' = validationResult.summary.totalDiscrepancies > 0 ? 'partial' : 'success';
+    
+    const endHr = process.hrtime.bigint();
+    const processingTimeSeconds = Math.max(Number(endHr - startHr) / 1_000_000_000, 0.001);
     const response = {
       success: true,
       message: 'Invoice processed successfully',
+      data: {
+        id: `validation-${Date.now()}`,
+        fileName: originalname,
+        uploadedAt: new Date().toISOString(),
+        totalItems: parsedInvoice.itemCount,
+        items: parsedInvoice.items, // Add parsed items to response
+        discrepancies: validationResult.discrepancies,
+        processingTime: Number(processingTimeSeconds.toFixed(3)),
+        status: status
+      },
       timestamp: new Date().toISOString(),
       fileInfo: {
         name: originalname,
@@ -106,6 +142,15 @@ router.post('/', upload.single('invoice'), async (req: Request, res: Response, n
 
     // Log validation results
     console.log(`Validation complete: ${validationResult.summary.totalDiscrepancies} discrepancies found`);
+    
+    // Add to validation history
+    try {
+      validationHistoryService.addToHistory(response.data);
+      console.log('Validation result added to history');
+    } catch (historyError) {
+      console.warn('Failed to add validation result to history:', historyError);
+      // Don't fail the request if history saving fails
+    }
     
     res.status(200).json(response);
 
@@ -169,6 +214,7 @@ router.get('/supported-formats', (req: Request, res: Response) => {
  */
 router.post('/validate-only', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const startHr = process.hrtime.bigint();
     const { invoiceItems } = req.body;
 
     if (!invoiceItems || !Array.isArray(invoiceItems)) {
@@ -196,9 +242,33 @@ router.post('/validate-only', async (req: Request, res: Response, next: NextFunc
     discrepancyChecker.setReferenceDrugs(referenceDrugs);
     const validationResult = discrepancyChecker.validateInvoice(invoiceItems);
 
+    // Prepare response with proper format
+    const status: 'success' | 'partial' | 'error' = validationResult.summary.totalDiscrepancies > 0 ? 'partial' : 'success';
+    
+    const endHr = process.hrtime.bigint();
+    const processingTimeSeconds = Math.max(Number(endHr - startHr) / 1_000_000_000, 0.001);
+    const responseData = {
+      id: `validation-${Date.now()}`,
+      fileName: 'Manual Validation',
+      uploadedAt: new Date().toISOString(),
+      totalItems: invoiceItems.length,
+      discrepancies: validationResult.discrepancies,
+      processingTime: Number(processingTimeSeconds.toFixed(3)),
+      status: status
+    };
+
+    // Add to validation history
+    try {
+      validationHistoryService.addToHistory(responseData);
+      console.log('Manual validation result added to history');
+    } catch (historyError) {
+      console.warn('Failed to add manual validation result to history:', historyError);
+    }
+
     res.json({
       success: true,
       message: 'Invoice data validated successfully',
+      data: responseData,
       timestamp: new Date().toISOString(),
       validation: {
         totalDiscrepancies: validationResult.summary.totalDiscrepancies,

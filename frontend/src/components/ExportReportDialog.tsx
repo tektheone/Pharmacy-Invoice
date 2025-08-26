@@ -33,13 +33,13 @@ export function ExportReportDialog({
   validationId,
   onOpenChange
 }: ExportReportDialogProps) {
-  const [selectedFormat, setSelectedFormat] = useState<ExportFormat>('pdf');
-  const [selectedSections, setSelectedSections] = useState<ExportSection[]>(['summary', 'discrepancies']);
+  const [selectedFormat, setSelectedFormat] = useState('pdf');
+  const [selectedSections, setSelectedSections] = useState(['summary', 'discrepancies']);
   const [includeCharts, setIncludeCharts] = useState(true);
-  const [filterSeverity, setFilterSeverity] = useState<string>('all');
+  const [filterSeverity, setFilterSeverity] = useState('all');
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
-  const [exportStatus, setExportStatus] = useState<'idle' | 'preparing' | 'generating' | 'complete' | 'error'>('idle');
+  const [exportStatus, setExportStatus] = useState('idle');
   const [error, setError] = useState<string | null>(null);
 
   const formatOptions = [
