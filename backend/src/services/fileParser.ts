@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import * as ExcelJS from 'exceljs';
 import csvParser from 'csv-parser';
 import pdfParse from 'pdf-parse';
 import { createReadStream } from 'fs';
@@ -73,15 +73,21 @@ export class FileParser {
    */
   private async parseExcel(fileBuffer: Buffer): Promise<ParsedInvoice> {
     try {
-      const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(fileBuffer);
+      const worksheet = workbook.getWorksheet(1);
+      if (!worksheet) {
+        throw new Error('No worksheet found in Excel file');
+      }
       
       // Convert to JSON with header row
-      const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[];
+      const jsonData: any[] = [];
+      worksheet.eachRow((row, rowNumber) => {
+        const rowData = row.values as any[];
+        jsonData.push(rowData);
+      });
       
       console.log('Excel parsing debug:', {
-        sheetNames: workbook.SheetNames,
         totalRows: jsonData.length,
         headers: jsonData[0],
         sampleData: jsonData.slice(1, 3)
