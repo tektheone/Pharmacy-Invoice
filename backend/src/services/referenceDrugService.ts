@@ -1,12 +1,15 @@
 import { Drug } from './discrepancyChecker';
 
+// The external API may return either { name, unitPrice } or { drugName, standardUnitPrice }
 export interface ReferenceDrugResponse {
-  id: string;
-  name: string;
-  strength: string;
-  formulation: string;
-  payer: string;
-  unitPrice: number;
+  id?: string | number;
+  name?: string;
+  drugName?: string;
+  strength?: string;
+  formulation?: string;
+  payer?: string;
+  unitPrice?: number | string;
+  standardUnitPrice?: number | string;
 }
 
 export class ReferenceDrugService {
@@ -58,14 +61,19 @@ export class ReferenceDrugService {
    * Transform API response to internal Drug format
    */
   private transformReferenceData(data: ReferenceDrugResponse[]): Drug[] {
-    return data.map(item => ({
-      id: item.id,
-      name: item.name.trim(),
-      strength: item.strength.trim(),
-      formulation: item.formulation.trim(),
-      payer: item.payer.trim(),
-      unitPrice: this.parseUnitPrice(item.unitPrice)
-    }));
+    return data.map(item => {
+      const idValue = (item.id !== undefined ? String(item.id) : undefined) || `drug-${Date.now()}-${Math.random()}`;
+      const nameValue = (item.name || item.drugName || 'Unknown Drug').toString().trim();
+      const priceRaw = item.unitPrice ?? item.standardUnitPrice ?? 0;
+      return {
+        id: idValue,
+        name: nameValue,
+        strength: (item.strength || 'Unknown Strength').toString().trim(),
+        formulation: (item.formulation || 'Unknown Formulation').toString().trim(),
+        payer: (item.payer || 'Unknown Payer').toString().trim(),
+        unitPrice: this.parseUnitPrice(priceRaw)
+      };
+    });
   }
 
   /**

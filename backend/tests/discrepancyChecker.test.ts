@@ -65,6 +65,7 @@ describe('DiscrepancyChecker', () => {
     // Mock invoice items
     mockInvoiceItems = [
       {
+        patientName: 'Test Patient 1',
         drugName: 'Amoxicillin',
         strength: '500 mg',
         formulation: 'Capsule',
@@ -75,6 +76,7 @@ describe('DiscrepancyChecker', () => {
         total: 15.00
       },
       {
+        patientName: 'Test Patient 2',
         drugName: 'Lisinopril',
         strength: '10 mg',
         formulation: 'Tablet',
@@ -85,6 +87,7 @@ describe('DiscrepancyChecker', () => {
         total: 10.50
       },
       {
+        patientName: 'Test Patient 3',
         drugName: 'Metformin',
         strength: '500 mg',
         formulation: 'Tablet (ER)',
@@ -95,6 +98,7 @@ describe('DiscrepancyChecker', () => {
         total: 12.00
       },
       {
+        patientName: 'Test Patient 4',
         drugName: 'Insulin Glargine',
         strength: '100 units/mL',
         formulation: 'Solution (vial, 10mL)',
@@ -105,6 +109,7 @@ describe('DiscrepancyChecker', () => {
         total: 120.00
       },
       {
+        patientName: 'Test Patient 5',
         drugName: 'Loratadine',
         strength: '10 g', // Strength mismatch (should be 10 mg)
         formulation: 'Tablet',
@@ -115,6 +120,7 @@ describe('DiscrepancyChecker', () => {
         total: 7.50
       },
       {
+        patientName: 'Test Patient 6',
         drugName: 'Erythropoietin',
         strength: '10000 IU/1.0ml',
         formulation: 'Capsule', // Formulation mismatch (should be Solution)
@@ -151,6 +157,7 @@ describe('DiscrepancyChecker', () => {
 
     it('should handle drugs not found in reference', () => {
       const unknownDrug: InvoiceItem = {
+        patientName: 'Unknown Patient',
         drugName: 'Unknown Drug',
         strength: '100 mg',
         formulation: 'Tablet',
@@ -186,8 +193,32 @@ describe('DiscrepancyChecker', () => {
       expect(priceDiscrepancies[0].severity).toBe('error');
     });
 
+    it('should handle extreme price overcharge gracefully', () => {
+      const extremeOverchargeItem: InvoiceItem = {
+        patientName: 'Extreme Overcharge Patient',
+        drugName: 'Amoxicillin', // Use existing drug from mock data
+        strength: '500 mg',
+        formulation: 'Capsule',
+        doseInstructions: '1 capsule 3x daily',
+        payer: 'medicaid',
+        quantity: 30,
+        unitPrice: 50.00, // Extreme overcharge: 50 vs 0.45 (11000%+)
+        total: 1500.00
+      };
+      
+      const result = discrepancyChecker.validateInvoice([extremeOverchargeItem]);
+      const priceDiscrepancies = result.discrepancies.filter(d => d.type === 'unit_price');
+      
+      expect(priceDiscrepancies.length).toBe(1);
+      expect(priceDiscrepancies[0].percentageDifference).toBeGreaterThan(100); // Should be 11000%+
+      expect(priceDiscrepancies[0].overchargeAmount).toBeCloseTo(49.55, 2);
+      expect(priceDiscrepancies[0].severity).toBe('error');
+      expect(priceDiscrepancies[0].message).toContain('1000%+ overcharge');
+    });
+
     it('should not flag prices within 10% threshold', () => {
       const withinThresholdItem: InvoiceItem = {
+        patientName: 'Within Threshold Patient',
         drugName: 'Amoxicillin',
         strength: '500 mg',
         formulation: 'Capsule',
@@ -206,6 +237,7 @@ describe('DiscrepancyChecker', () => {
 
     it('should not flag prices below reference price', () => {
       const belowReferenceItem: InvoiceItem = {
+        patientName: 'Below Reference Patient',
         drugName: 'Amoxicillin',
         strength: '500 mg',
         formulation: 'Capsule',

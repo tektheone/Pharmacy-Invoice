@@ -5,15 +5,16 @@ import morgan from 'morgan';
 import { config } from 'dotenv';
 import { uploadRouter } from './routes/upload';
 import { healthRouter } from './routes/health';
-import { errorHandler } from './middleware/errorHandler.js';
-import { notFoundHandler } from './middleware/notFoundHandler.js';
-import { requestLogger } from './middleware/requestLogger.js';
+import { validationRouter } from './routes/validation';
+import { errorHandler } from './middleware/errorHandler';
+import { notFoundHandler } from './middleware/notFoundHandler';
+import { requestLogger } from './middleware/requestLogger';
 
 // Load environment variables
 config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // Security middleware
@@ -21,7 +22,7 @@ app.use(helmet());
 
 // CORS configuration
 const corsOptions = {
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:3001'],
+  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5000'],
   credentials: true,
   optionsSuccessStatus: 200
 };
@@ -44,6 +45,7 @@ app.use(requestLogger);
 // API routes
 app.use('/api/upload', uploadRouter);
 app.use('/api/health', healthRouter);
+app.use('/api/validation', validationRouter);
 
 // Root endpoint
 app.get('/', (req, res) => {
