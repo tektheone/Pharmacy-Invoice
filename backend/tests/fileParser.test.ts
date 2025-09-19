@@ -80,6 +80,7 @@ describe('FileParser', () => {
       
       expect(item).toEqual({
         drugName: 'Amoxicillin',
+        patientName: '',
         strength: '500 mg',
         formulation: 'Capsule',
         doseInstructions: '1 capsule 3x daily',

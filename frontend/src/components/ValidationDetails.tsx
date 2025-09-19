@@ -369,7 +369,7 @@ export function ValidationDetails({ validation, onBack }: ValidationDetailsProps
                     <div className="flex justify-between">
                       <span>Affected Amount</span>
                       <span className="font-medium">
-                        ${overchargeDiscrepancies.reduce((sum, d) => sum + (d.invoiceItem?.totalAmount || 0), 0).toFixed(2)}
+                        ${overchargeDiscrepancies.reduce((sum, d) => sum + (d.invoiceItem?.total || 0), 0).toFixed(2)}
                       </span>
                     </div>
                   </div>

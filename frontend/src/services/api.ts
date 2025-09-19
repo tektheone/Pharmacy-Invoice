@@ -74,8 +74,14 @@ class PharmacyDataAPI {
   private baseURL: string;
 
   constructor() {
-    // Use environment variable or default to localhost:5000
-    this.baseURL = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5000/api';
+    // Use environment variable or determine based on current location
+    if ((import.meta as any).env?.VITE_API_BASE_URL) {
+      this.baseURL = (import.meta as any).env?.VITE_API_BASE_URL;
+    } else {
+      // For production AWS deployment, use relative path
+      // This works when both frontend and backend are behind the same load balancer
+      this.baseURL = '/api';
+    }
   }
 
   /**
